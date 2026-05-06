@@ -264,30 +264,52 @@ export default function App() {
               const status = getStatusInfo(event.dueDate, event.dueTime);
               const isExpanded = expandedEvents.includes(event.id);
               
+              // --- LOGIKA WARNA & EFEK 3D ---
+              let bgGradient = "bg-gradient-to-br from-white to-indigo-50";
+              let cardAccent = "border-indigo-500";
+              
+              if (status.text === 'Hari Ini') {
+                bgGradient = "bg-gradient-to-br from-white to-red-50";
+                cardAccent = "border-red-500";
+              } else if (status.text === 'Selesai/Terlewat') {
+                bgGradient = "bg-gradient-to-br from-white to-gray-100";
+                cardAccent = "border-gray-400";
+              } else if (status.isUrgent) {
+                bgGradient = "bg-gradient-to-br from-white to-orange-50";
+                cardAccent = "border-orange-500";
+              } else if (status.text.includes('Hari Lagi') && parseInt(status.text) <= 7) {
+                bgGradient = "bg-gradient-to-br from-white to-yellow-50";
+                cardAccent = "border-yellow-400";
+              } else {
+                bgGradient = "bg-gradient-to-br from-white to-green-50";
+                cardAccent = "border-green-500";
+              }
+              // ------------------------------
+
               return (
-                <div key={event.id} className={`bg-white rounded-xl shadow-sm border overflow-hidden transition-all duration-200 ${status.isUrgent ? 'border-red-200' : 'border-gray-100 hover:border-indigo-100 hover:shadow-md'}`}>
+                <div key={event.id} className={`${bgGradient} rounded-xl shadow-md hover:shadow-xl border border-gray-100 border-l-8 ${cardAccent} overflow-hidden transition-all duration-300 transform hover:-translate-y-1.5`}>
                   <div className="p-4 sm:p-5">
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                       
                       <div className="flex-1">
                         <div className="flex flex-wrap items-center gap-2 mb-2">
-                          <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${status.color}`}>
+                          <span className={`px-2.5 py-1 rounded-md text-xs font-bold shadow-sm ${status.color}`}>
                             {status.text}
                           </span>
-                          <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-md text-xs font-semibold">
+                          <span className="px-2 py-1 bg-white/80 text-gray-700 rounded-md text-xs font-bold border border-gray-200 shadow-sm">
                             Pemilik: {event.ownerSeksi || 'Umum'}
                           </span>
                         </div>
-                        <h3 className="text-lg font-bold text-gray-900 mb-2 leading-snug">{event.name}</h3>
+                        <h3 className="text-lg font-bold text-gray-900 mb-2 leading-snug drop-shadow-sm">{event.name}</h3>
                         
-                        <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-gray-600 font-medium">
-                          <div className="flex items-center text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md">
-                            <Clock size={15} className="mr-1.5" />
+                        <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-gray-700 font-semibold">
+                          <div className="flex items-center bg-white/60 px-2.5 py-1 rounded-md shadow-sm border border-gray-100">
+                            <Clock size={15} className="mr-1.5 text-indigo-600" />
                             {event.dueDate.split('-').reverse().join('/')} • Pukul {event.dueTime}
                           </div>
                           {event.location && (
-                            <div className="flex items-center">
-                              <MapPin size={15} className="mr-1.5 text-gray-400" />
+                            <div className="flex items-center bg-white/60 px-2.5 py-1 rounded-md shadow-sm border border-gray-100">
+                              <MapPin size={15} className="mr-1.5 text-red-500" />
                               {event.location}
                             </div>
                           )}
@@ -295,11 +317,11 @@ export default function App() {
                       </div>
 
                       {currentUser && (currentUser.role === 'superadmin' || currentUser.seksi === event.ownerSeksi) && (
-                        <div className="flex gap-2 w-full sm:w-auto">
-                          <button onClick={() => openEditModal(event)} className="flex-1 sm:flex-none flex items-center justify-center px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-sm font-semibold transition-colors">
+                        <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+                          <button onClick={() => openEditModal(event)} className="flex-1 sm:flex-none flex items-center justify-center px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-bold shadow-md transition-transform hover:scale-105">
                             <Edit2 size={16} className="sm:mr-1.5" /><span className="hidden sm:inline">Edit</span>
                           </button>
-                          <button onClick={() => setEventToDelete(event.id)} className="flex-1 sm:flex-none flex items-center justify-center px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-sm font-semibold transition-colors">
+                          <button onClick={() => setEventToDelete(event.id)} className="flex-1 sm:flex-none flex items-center justify-center px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-bold shadow-md transition-transform hover:scale-105">
                             <Trash2 size={16} className="sm:mr-1.5" /><span className="hidden sm:inline">Hapus</span>
                           </button>
                         </div>
@@ -308,9 +330,9 @@ export default function App() {
                     </div>
 
                     {event.description && (
-                      <div className="mt-4 pt-3 border-t border-gray-50">
-                        <p className={`text-sm text-gray-600 ${!isExpanded && 'line-clamp-2'}`}>{event.description}</p>
-                        <button onClick={() => toggleExpand(event.id)} className="text-xs font-bold text-indigo-600 hover:text-indigo-800 mt-2">
+                      <div className="mt-4 pt-3 border-t border-gray-200/60">
+                        <p className={`text-sm text-gray-800 font-medium ${!isExpanded && 'line-clamp-2'}`}>{event.description}</p>
+                        <button onClick={() => toggleExpand(event.id)} className="text-xs font-bold text-indigo-600 hover:text-indigo-800 mt-2 bg-white/60 px-2.5 py-1 rounded shadow-sm border border-indigo-50">
                           {isExpanded ? 'Tutup Deskripsi' : 'Baca Selengkapnya'}
                         </button>
                       </div>
@@ -320,7 +342,6 @@ export default function App() {
               );
             })}
           </div>
-        )}
       </main>
 
       {currentUser && (
