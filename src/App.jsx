@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from './firebase'; 
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDocs, increment, addDoc } from 'firebase/firestore';
-import { Calendar, Clock, MapPin, BellRing, Plus, Edit2, Trash2, X, AlertCircle, LogOut, Users, Share2, Copy } from 'lucide-react';
+import { Calendar, Clock, MapPin, BellRing, Plus, Edit2, Trash2, X, AlertCircle, LogOut, Users, Copy, FileText } from 'lucide-react';
 
 export default function App() {
   const [events, setEvents] = useState([]);
@@ -11,6 +11,10 @@ export default function App() {
   const [filterSeksi, setFilterSeksi] = useState('Semua Seksi');
   const [showUserModal, setShowUserModal] = useState(false);
   const [newUserForm, setNewUserForm] = useState({ username: '', password: '', seksi: 'Pelayanan' });
+
+  // --- STATE BARU UNTUK MODAL EKSPOR ---
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportText, setExportText] = useState('');
 
   const DAFTAR_SEKSI = [
     'Semua Seksi', 'SUKI', 'Pelayanan', 'PKD', 'P3', 
@@ -86,7 +90,7 @@ export default function App() {
     return { text: `${diffDays} Hari Lagi`, color: "bg-green-100 text-green-800", isUrgent: false };
   };
 
-  // --- LOGIKA EKSPOR WHATSAPP FORMAL ---
+  // --- LOGIKA GENERATE TEKS ---
   const formatSingleEvent = (event) => {
     const tgl = event.dueDate.split('-').reverse().join('/');
     return `izin menyampaikan reminder *${event.name}* untuk dilaksanakan paling lambat *${tgl} pukul ${event.dueTime} WIB*\n\n` +
@@ -96,27 +100,30 @@ export default function App() {
            `Tim ${event.ownerSeksi || 'Kepatuhan Internal'}`;
   };
 
-  const exportAllToWA = () => {
+  const handleExportSingle = (event) => {
+    setExportText(formatSingleEvent(event));
+    setShowExportModal(true);
+  };
+
+  const handleExportAll = () => {
     if (sortedEvents.length === 0) return;
     const namaSeksi = filterSeksi === 'Semua Seksi' ? 'DJP' : filterSeksi;
     let text = `Izin mengingatkan agenda Seksi ${namaSeksi}:\n\n`;
-    
     sortedEvents.forEach((event, index) => {
       const tgl = event.dueDate.split('-').reverse().join('/');
       text += `${index + 1}. *${event.name}* paling lambat *${tgl} pukul ${event.dueTime} WIB*\n`;
     });
-
     text += `\nuntuk lebih jelas dapat mengunjungi tautan s.kemenkeu.go.id/ReminderSUKI\n\n` +
             `Terima kasih atas perhatiannya\n\n` +
             `Tim ${namaSeksi}`;
-    
-    const encodedText = encodeURIComponent(text);
-    window.open(`https://wa.me/?text=${encodedText}`, '_blank');
+    setExportText(text);
+    setShowExportModal(true);
   };
 
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(exportText);
     showToast("Teks berhasil disalin!");
+    setShowExportModal(false);
   };
 
   const handleLogin = async (e) => {
@@ -134,10 +141,7 @@ export default function App() {
     } catch (error) { setLoginError('Terjadi kesalahan koneksi.'); }
   };
 
-  const handleLogout = () => {
-    setCurrentUser(null);
-    showToast("Berhasil logout");
-  };
+  const handleLogout = () => { setCurrentUser(null); showToast("Berhasil logout"); };
 
   const handleAddUser = async (e) => {
     e.preventDefault();
@@ -146,8 +150,7 @@ export default function App() {
       const querySnapshot = await getDocs(q);
       if (!querySnapshot.empty) { alert('Username sudah dipakai!'); return; }
       await addDoc(collection(db, 'users'), {
-        username: newUserForm.username, password: newUserForm.password,
-        seksi: newUserForm.seksi, role: 'admin_seksi'
+        username: newUserForm.username, password: newUserForm.password, seksi: newUserForm.seksi, role: 'admin_seksi'
       });
       setShowUserModal(false); setNewUserForm({ username: '', password: '', seksi: 'Pelayanan' });
       showToast(`Akun ${newUserForm.seksi} berhasil dibuat!`);
@@ -214,12 +217,12 @@ export default function App() {
                 <Users size={16} className="mr-1.5"/><span>{viewCount} Views</span>
               </div>
               {currentUser.role === 'superadmin' && (
-                <button onClick={() => setShowUserModal(true)} className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-md">+ Akun</button>
+                <button onClick={() => setShowUserModal(true)} className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold">+ Akun</button>
               )}
               <button onClick={handleLogout} className="bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg text-sm font-bold"><LogOut size={16}/></button>
             </div>
           ) : (
-            <button onClick={() => setShowLoginModal(true)} className="text-sm font-bold bg-white text-indigo-600 px-5 py-2 rounded-lg">Admin Login</button>
+            <button onClick={() => setShowLoginModal(true)} className="text-sm font-bold bg-white text-indigo-600 px-5 py-2 rounded-lg shadow-sm transition-all duration-200">Admin Login</button>
           )}
         </div>
       </header>
@@ -234,8 +237,8 @@ export default function App() {
 
           <div className="flex items-center space-x-2 w-full sm:w-auto">
             {sortedEvents.length > 0 && (
-              <button onClick={exportAllToWA} title="Ekspor Filter ke WA" className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 shadow-md font-bold text-sm">
-                <Share2 size={18} /> <span>WA Group</span>
+              <button onClick={handleExportAll} title="Generate Rekap" className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 shadow-md font-bold text-sm transition-transform hover:scale-105">
+                <FileText size={18} /> <span>Teks Rekap</span>
               </button>
             )}
             <select value={filterSeksi} onChange={(e) => setFilterSeksi(e.target.value)} className="w-full sm:w-auto px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium">
@@ -245,9 +248,9 @@ export default function App() {
         </div>
 
         {isLoading ? (
-          <div className="text-center py-10">Memuat...</div>
+          <div className="text-center py-10">Memuat data kalender...</div>
         ) : sortedEvents.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-xl border border-gray-100 text-gray-500">Belum ada agenda.</div>
+          <div className="text-center py-12 bg-white rounded-xl border border-gray-100 text-gray-500">Belum ada agenda untuk seksi ini.</div>
         ) : (
           <div className="space-y-4">
             {sortedEvents.map((event) => {
@@ -257,7 +260,7 @@ export default function App() {
               let cardAccent = status.text === 'Hari Ini' ? "border-red-500" : status.isUrgent ? "border-orange-500" : "border-green-500";
 
               return (
-                <div key={event.id} className={`bg-gradient-to-br ${bgGradient} rounded-xl shadow-md hover:shadow-xl border border-l-8 ${cardAccent} overflow-hidden transition-all duration-300 transform hover:-translate-y-1`}>
+                <div key={event.id} className={`bg-gradient-to-br ${bgGradient} rounded-xl shadow-md hover:shadow-xl border border-l-8 ${cardAccent} overflow-hidden transition-all duration-300 transform hover:-translate-y-1.5`}>
                   <div className="p-4 sm:p-5">
                     <div className="flex flex-col sm:flex-row justify-between gap-4">
                       <div className="flex-1">
@@ -265,27 +268,26 @@ export default function App() {
                           <span className={`px-2.5 py-1 rounded-md text-xs font-bold shadow-sm ${status.color}`}>{status.text}</span>
                           <span className="px-2 py-1 bg-white/80 text-gray-700 rounded-md text-xs font-bold border shadow-sm">Tim: {event.ownerSeksi}</span>
                         </div>
-                        <h3 className="text-lg font-bold text-gray-900 mb-2">{event.name}</h3>
+                        <h3 className="text-lg font-bold text-gray-900 mb-2 leading-snug drop-shadow-sm">{event.name}</h3>
                         <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm font-semibold text-gray-700">
-                          <div className="flex items-center bg-white/60 px-2.5 py-1 rounded-md shadow-sm border border-gray-100"><Clock size={15} className="mr-1.5 text-indigo-600"/>{event.dueDate.split('-').reverse().join('/')} • {event.dueTime}</div>
+                          <div className="flex items-center bg-white/60 px-2.5 py-1 rounded-md shadow-sm border border-gray-100"><Clock size={15} className="mr-1.5 text-indigo-600"/>{event.dueDate.split('-').reverse().join('/')} • {event.dueTime} WIB</div>
                           {event.location && <div className="flex items-center bg-white/60 px-2.5 py-1 rounded-md shadow-sm border border-gray-100"><MapPin size={15} className="mr-1.5 text-red-500"/>{event.location}</div>}
                         </div>
                       </div>
                       <div className="flex gap-2 items-start">
-                        <button onClick={() => copyToClipboard(formatSingleEvent(event))} title="Copy Teks" className="p-2.5 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg shadow-sm"><Copy size={18}/></button>
-                        <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(formatSingleEvent(event))}`, '_blank')} title="Share WA" className="p-2.5 bg-green-500 text-white hover:bg-green-600 rounded-lg shadow-md"><Share2 size={18}/></button>
+                        <button onClick={() => handleExportSingle(event)} title="Generate Teks" className="p-2.5 bg-green-500 text-white rounded-lg hover:bg-green-600 shadow-md transition-transform hover:scale-110"><FileText size={18}/></button>
                         {currentUser && (currentUser.role === 'superadmin' || currentUser.seksi === event.ownerSeksi) && (
                           <div className="flex gap-2">
-                            <button onClick={() => openEditModal(event)} className="p-2.5 bg-blue-500 text-white rounded-lg"><Edit2 size={16}/></button>
-                            <button onClick={() => setEventToDelete(event.id)} className="p-2.5 bg-red-500 text-white rounded-lg"><Trash2 size={16}/></button>
+                            <button onClick={() => openEditModal(event)} className="p-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 shadow-md transition-transform hover:scale-110"><Edit2 size={16}/></button>
+                            <button onClick={() => setEventToDelete(event.id)} className="p-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 shadow-md transition-transform hover:scale-110"><Trash2 size={16}/></button>
                           </div>
                         )}
                       </div>
                     </div>
                     {event.description && (
                       <div className="mt-4 pt-3 border-t border-gray-200/60">
-                        <p className={`text-sm text-gray-800 ${!isExpanded && 'line-clamp-2'}`}>{event.description}</p>
-                        <button onClick={() => toggleExpand(event.id)} className="text-xs font-bold text-indigo-600 mt-2 bg-white/60 px-2 py-1 rounded shadow-sm">{isExpanded ? 'Tutup' : 'Selengkapnya'}</button>
+                        <p className={`text-sm text-gray-800 font-medium ${!isExpanded && 'line-clamp-2'}`}>{event.description}</p>
+                        <button onClick={() => toggleExpand(event.id)} className="text-xs font-bold text-indigo-600 mt-2 bg-white/60 px-2.5 py-1 rounded shadow-sm border border-indigo-50">{isExpanded ? 'Tutup Deskripsi' : 'Selengkapnya'}</button>
                       </div>
                     )}
                   </div>
@@ -298,77 +300,102 @@ export default function App() {
 
       {currentUser && <button onClick={() => setShowAddModal(true)} className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center transition-transform hover:scale-105 z-40"><Plus size={28}/></button>}
 
-      {/* --- MODAL-MODAL --- */}
+      {/* --- MODAL EKSPOR BARU --- */}
+      {showExportModal && (
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-gray-800">Teks Pengingat</h3>
+              <button onClick={() => setShowExportModal(false)} className="text-gray-400 hover:text-gray-600"><X size={24} /></button>
+            </div>
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5 max-h-80 overflow-y-auto">
+              <pre className="whitespace-pre-wrap text-sm font-sans text-gray-700 leading-relaxed">{exportText}</pre>
+            </div>
+            <div className="flex space-x-3">
+              <button onClick={() => setShowExportModal(false)} className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl transition-colors hover:bg-gray-200">Tutup</button>
+              <button onClick={copyToClipboard} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md transition-transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
+                <Copy size={18} /> Salin Teks
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL LOGIN --- */}
       {showLoginModal && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
-            <h3 className="text-xl font-bold mb-5">Login Admin</h3>
+            <h3 className="text-xl font-bold text-gray-800 mb-5">Login Admin</h3>
             <form onSubmit={handleLogin} className="space-y-4">
-              <input type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full p-2.5 bg-gray-50 border rounded-xl" autoFocus />
-              <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full p-2.5 bg-gray-50 border rounded-xl" />
-              {loginError && <p className="text-red-500 text-sm">{loginError}</p>}
-              <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md">Masuk</button>
-              <button type="button" onClick={() => setShowLoginModal(false)} className="w-full text-gray-500 text-sm mt-2">Batal</button>
+              <input type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500" autoFocus />
+              <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500" />
+              {loginError && <p className="text-red-500 text-xs font-bold text-center">{loginError}</p>}
+              <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md transition-colors hover:bg-indigo-700">Masuk</button>
+              <button type="button" onClick={() => setShowLoginModal(false)} className="w-full text-gray-500 text-sm mt-2 transition-colors hover:text-gray-700">Batal</button>
             </form>
           </div>
         </div>
       )}
 
+      {/* --- MODAL TAMBAH USER --- */}
       {showUserModal && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl text-center">
-            <h3 className="text-xl font-bold mb-4">Buat Akun Seksi</h3>
-            <form onSubmit={handleAddUser} className="space-y-4 text-left">
-              <select value={newUserForm.seksi} onChange={(e) => setNewUserForm({...newUserForm, seksi: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
+            <h3 className="text-xl font-bold mb-4 text-center">Buat Akun Seksi</h3>
+            <form onSubmit={handleAddUser} className="space-y-4">
+              <select value={newUserForm.seksi} onChange={(e) => setNewUserForm({...newUserForm, seksi: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500">
                 {DAFTAR_SEKSI.filter(s => s !== 'Semua Seksi').map(s => <option key={s} value={s}>{s}</option>)}
               </select>
-              <input type="text" placeholder="Username" value={newUserForm.username} onChange={(e) => setNewUserForm({...newUserForm, username: e.target.value.toLowerCase()})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
-              <input type="text" placeholder="Password" value={newUserForm.password} onChange={(e) => setNewUserForm({...newUserForm, password: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
-              <button type="submit" className="w-full py-2.5 bg-green-500 text-white font-bold rounded-xl shadow-md">Simpan Akun</button>
-              <button type="button" onClick={() => setShowUserModal(false)} className="w-full text-gray-500">Batal</button>
+              <input type="text" placeholder="Username Baru" value={newUserForm.username} onChange={(e) => setNewUserForm({...newUserForm, username: e.target.value.toLowerCase()})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500" required />
+              <input type="text" placeholder="Password Baru" value={newUserForm.password} onChange={(e) => setNewUserForm({...newUserForm, password: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500" required />
+              <button type="submit" className="w-full py-2.5 bg-green-500 text-white font-bold rounded-xl shadow-md transition-colors hover:bg-green-600">Simpan Akun</button>
+              <button type="button" onClick={() => setShowUserModal(false)} className="w-full text-gray-500 transition-colors hover:text-gray-700">Batal</button>
             </form>
           </div>
         </div>
       )}
 
+      {/* --- MODAL TAMBAH AGENDA --- */}
       {showAddModal && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold mb-5">Tambah Agenda Baru</h3>
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto animate-in fade-in duration-200">
+            <h3 className="text-xl font-bold mb-5 text-gray-800">Tambah Agenda Baru</h3>
             <form onSubmit={handleAddSubmit} className="space-y-4">
-              <input type="text" placeholder="Nama Agenda" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
+              <input type="text" placeholder="Nama Agenda" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500" required />
               <div className="grid grid-cols-2 gap-4">
-                <input type="date" value={formData.dueDate} onChange={(e) => setFormData({...formData, dueDate: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
-                <input type="time" value={formData.dueTime} onChange={(e) => setFormData({...formData, dueTime: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
+                <input type="date" value={formData.dueDate} onChange={(e) => setFormData({...formData, dueDate: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500" required />
+                <input type="time" value={formData.dueTime} onChange={(e) => setFormData({...formData, dueTime: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500" required />
               </div>
-              <input type="text" placeholder="Lokasi (Opsional)" value={formData.location} onChange={(e) => setFormData({...formData, location: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" />
-              <textarea placeholder="Keterangan Tambahan" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} rows="3" className="w-full p-2.5 bg-gray-50 border rounded-xl resize-none"></textarea>
-              <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md">Simpan Agenda</button>
-              <button type="button" onClick={() => setShowAddModal(false)} className="w-full text-gray-500">Batal</button>
+              <input type="text" placeholder="Lokasi (Opsional)" value={formData.location} onChange={(e) => setFormData({...formData, location: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500" />
+              <textarea placeholder="Keterangan Tambahan" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} rows="3" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 resize-none"></textarea>
+              <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md transition-colors hover:bg-indigo-700">Simpan Agenda</button>
+              <button type="button" onClick={() => setShowAddModal(false)} className="w-full text-gray-500 text-sm transition-colors hover:text-gray-700">Batal</button>
             </form>
           </div>
         </div>
       )}
 
+      {/* --- MODAL EDIT AGENDA --- */}
       {showEditModal && editData && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold mb-4 text-center">Edit Agenda</h3>
+            <h3 className="text-xl font-bold mb-4 text-gray-800">Edit Agenda</h3>
             <form onSubmit={handleEditSubmit} className="space-y-4">
-              <input type="text" value={editData.name} onChange={(e) => setEditData({...editData, name: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
+              <input type="text" value={editData.name} onChange={(e) => setEditData({...editData, name: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl" required />
               <div className="grid grid-cols-2 gap-4">
-                <input type="date" value={editData.dueDate} onChange={(e) => setEditData({...editData, dueDate: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
-                <input type="time" value={editData.dueTime} onChange={(e) => setEditData({...editData, dueTime: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
+                <input type="date" value={editData.dueDate} onChange={(e) => setEditData({...editData, dueDate: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl" required />
+                <input type="time" value={editData.dueTime} onChange={(e) => setEditData({...editData, dueTime: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl" required />
               </div>
-              <input type="text" value={editData.location} onChange={(e) => setEditData({...editData, location: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" />
-              <textarea value={editData.description} onChange={(e) => setEditData({...editData, description: e.target.value})} rows="3" className="w-full p-2.5 bg-gray-50 border rounded-xl resize-none"></textarea>
-              <button type="submit" className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl shadow-md">Update Agenda</button>
-              <button type="button" onClick={() => setShowEditModal(false)} className="w-full text-gray-500">Batal</button>
+              <input type="text" value={editData.location} onChange={(e) => setEditData({...editData, location: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl" />
+              <textarea value={editData.description} onChange={(e) => setEditData({...editData, description: e.target.value})} rows="3" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl resize-none"></textarea>
+              <button type="submit" className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl shadow-md transition-colors hover:bg-blue-700">Update Agenda</button>
+              <button type="button" onClick={() => setShowEditModal(false)} className="w-full text-gray-500 transition-colors hover:text-gray-700">Batal</button>
             </form>
           </div>
         </div>
       )}
 
+      {/* --- MODAL HAPUS --- */}
       {eventToDelete && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-xl border-t-8 border-red-500">
@@ -376,13 +403,14 @@ export default function App() {
             <h3 className="text-lg font-bold mb-2 text-gray-900">Hapus Agenda?</h3>
             <p className="text-sm text-gray-500">Data yang dihapus tidak dapat dikembalikan.</p>
             <div className="flex space-x-3 mt-6">
-              <button onClick={() => setEventToDelete(null)} className="flex-1 py-2.5 bg-gray-100 rounded-xl font-bold">Batal</button>
-              <button onClick={handleDeleteConfirm} className="flex-1 py-2.5 bg-red-600 text-white font-bold rounded-xl shadow-md">Ya, Hapus</button>
+              <button onClick={() => setEventToDelete(null)} className="flex-1 py-2.5 bg-gray-100 rounded-xl font-bold transition-colors hover:bg-gray-200">Batal</button>
+              <button onClick={handleDeleteConfirm} className="flex-1 py-2.5 bg-red-600 text-white font-bold rounded-xl shadow-md transition-colors hover:bg-red-700">Ya, Hapus</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* --- TOAST --- */}
       {toast.show && (
         <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 bg-gray-900 text-white rounded-full shadow-2xl font-bold text-sm">
           {toast.message}
