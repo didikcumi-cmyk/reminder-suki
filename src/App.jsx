@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from './firebase'; 
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDocs, increment, addDoc } from 'firebase/firestore';
-// Ikon Search dan Download sudah dihapus agar Vercel tidak marah
 import { Calendar, Clock, MapPin, BellRing, Plus, Edit2, Trash2, X, AlertCircle, LogOut, Users } from 'lucide-react';
 
 export default function App() {
@@ -342,6 +341,7 @@ export default function App() {
               );
             })}
           </div>
+        )}
       </main>
 
       {currentUser && (
