@@ -1,15 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { db } from './firebase'; // Pastikan file firebase.js Anda sudah benar
+import { db } from './firebase'; 
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDocs, increment, addDoc } from 'firebase/firestore';
-import { Calendar, Clock, MapPin, BellRing, Search, Plus, Edit2, Trash2, X, Download, AlertCircle, LogOut, Users } from 'lucide-react';
-import * as XLSX from 'xlsx';
+// Ikon Search dan Download sudah dihapus agar Vercel tidak marah
+import { Calendar, Clock, MapPin, BellRing, Plus, Edit2, Trash2, X, AlertCircle, LogOut, Users } from 'lucide-react';
 
 export default function App() {
-  const [fbUser, setFbUser] = useState(null);
   const [events, setEvents] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // --- STATE BARU UNTUK FITUR MULTI-SEKSI & COUNTER ---
+  // --- STATE MULTI-SEKSI & COUNTER ---
   const [currentUser, setCurrentUser] = useState(null);
   const [viewCount, setViewCount] = useState(0);
   const [filterSeksi, setFilterSeksi] = useState('Semua Seksi');
@@ -20,12 +19,10 @@ export default function App() {
     'Semua Seksi', 'SUKI', 'Pelayanan', 'PKD', 'P3', 
     'Was 1', 'Was 2', 'Was 3', 'Was 4', 'Was 5', 'Was 6', 'FPP'
   ];
-  // ---------------------------------------------------
 
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showExportModal, setShowExportModal] = useState(false);
   const [eventToDelete, setEventToDelete] = useState(null);
   const [expandedEvents, setExpandedEvents] = useState([]);
 
@@ -37,7 +34,6 @@ export default function App() {
   const [formData, setFormData] = useState({ name: '', dueDate: '', dueTime: '', location: '', description: '' });
   const [editData, setEditData] = useState(null);
 
-  // --- EFEK MENGAMBIL DATA JADWAL DARI FIREBASE ---
   useEffect(() => {
     const q = collection(db, 'events');
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -48,7 +44,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- EFEK MENGHITUNG PENGUNJUNG ---
   useEffect(() => {
     const recordVisit = async () => {
       if (!sessionStorage.getItem('sudah_berkunjung')) {
@@ -61,7 +56,6 @@ export default function App() {
     recordVisit();
   }, []);
 
-  // --- EFEK MEMBACA COUNTER KHUSUS ADMIN ---
   useEffect(() => {
     if (!currentUser) return;
     const unsubscribe = onSnapshot(doc(db, 'statistik', 'pengunjung'), (docSnap) => {
@@ -95,7 +89,6 @@ export default function App() {
     return { text: `${diffDays} Hari Lagi`, color: "bg-green-100 text-green-800", isUrgent: false };
   };
 
-  // --- FUNGSI LOGIN MULTI-SEKSI ---
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!username || !password) { setLoginError('Isi username dan password.'); return; }
@@ -116,7 +109,6 @@ export default function App() {
     showToast("Berhasil logout");
   };
 
-  // --- FUNGSI TAMBAH AKUN SEKSI BARU (KHUSUS SUPER ADMIN) ---
   const handleAddUser = async (e) => {
     e.preventDefault();
     try {
@@ -136,19 +128,16 @@ export default function App() {
     } catch (error) { alert('Terjadi kesalahan server.'); }
   };
 
-  // --- FUNGSI TAMBAH EVENT BARU ---
   const handleAddSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.dueDate || !formData.dueTime) return;
     
-    // BATAS MAKSIMAL EVENT DIUBAH MENJADI 200
     if (events.length >= 200) { 
       showToast("Kapasitas maksimal 200 event telah tercapai.", "error"); 
       return; 
     }
 
     const newId = Math.random().toString(36).substr(2, 9);
-    // Tambahan ownerSeksi disini
     const newEvent = { ...formData, id: newId, lastEdited: null, ownerSeksi: currentUser?.seksi || 'Umum' };
 
     try {
@@ -185,7 +174,6 @@ export default function App() {
 
   const openEditModal = (evt) => { setEditData(evt); setShowEditModal(true); };
 
-  // --- LOGIKA FILTER & SORTING ---
   const sortedEvents = useMemo(() => {
     let filteredEvents = events;
     if (filterSeksi !== 'Semua Seksi') {
@@ -203,7 +191,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
       
-      {/* --- HEADER SUPER --- */}
       <header className="bg-indigo-600 sticky top-0 z-30 shadow-md">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3 text-white">
@@ -241,7 +228,6 @@ export default function App() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {/* --- JUDUL & DROPDOWN FILTER --- */}
         <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
           <div className="flex items-center space-x-2">
             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><BellRing size={20} /></div>
@@ -263,7 +249,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* --- DAFTAR KARTU JADWAL --- */}
         {isLoading ? (
           <div className="text-center py-10 text-gray-500 font-medium">Memuat data kalender...</div>
         ) : sortedEvents.length === 0 ? (
@@ -309,7 +294,6 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* --- TOMBOL AKSI KHUSUS PEMILIK/SUPERADMIN --- */}
                       {currentUser && (currentUser.role === 'superadmin' || currentUser.seksi === event.ownerSeksi) && (
                         <div className="flex gap-2 w-full sm:w-auto">
                           <button onClick={() => openEditModal(event)} className="flex-1 sm:flex-none flex items-center justify-center px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-sm font-semibold transition-colors">
@@ -339,7 +323,6 @@ export default function App() {
         )}
       </main>
 
-      {/* --- TOMBOL MENGAPUNG KANAN BAWAH (TAMBAH JADWAL) --- */}
       {currentUser && (
         <button
           onClick={() => setShowAddModal(true)}
@@ -349,7 +332,6 @@ export default function App() {
         </button>
       )}
 
-      {/* --- MODAL LOGIN --- */}
       {showLoginModal && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
@@ -373,7 +355,6 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL TAMBAH USER / AKUN SEKSI BARU --- */}
       {showUserModal && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
@@ -404,7 +385,6 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL TAMBAH JADWAL --- */}
       {showAddModal && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -444,7 +424,6 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL EDIT JADWAL --- */}
       {showEditModal && editData && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -467,7 +446,6 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL HAPUS JADWAL --- */}
       {eventToDelete && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-xl">
@@ -482,7 +460,6 @@ export default function App() {
         </div>
       )}
 
-      {/* --- TOAST NOTIFICATION --- */}
       {toast.show && (
         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
           <div className={`px-6 py-3 rounded-full shadow-lg font-bold text-sm ${toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-gray-800 text-white'}`}>
