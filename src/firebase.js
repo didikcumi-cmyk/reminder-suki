@@ -1,9 +1,8 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
-// TODO: Ganti nilai di dalam objek firebaseConfig ini dengan konfigurasi asli milik KPP Bapak!
 const firebaseConfig = {
-  apiKey: "AIzaSyDvSAiFoTeWOLwhkSXwJgl-vJASfs3UfQw",
+  apiKey: "AIzaSyDvSAiFoTeW0LwhkSXwJgl-vJASfs3UfQw",
   authDomain: "remindersuki-095.firebaseapp.com",
   projectId: "remindersuki-095",
   storageBucket: "remindersuki-095.firebasestorage.app",
@@ -14,7 +13,6 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
 
 // Initialize Cloud Firestore and get a reference to the service
 export const db = getFirestore(app);
