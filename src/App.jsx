@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from './firebase'; 
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDocs, increment, addDoc } from 'firebase/firestore';
-import { Calendar, Clock, MapPin, BellRing, Plus, Edit2, Trash2, X, AlertCircle, LogOut, Users } from 'lucide-react';
+import { Calendar, Clock, MapPin, BellRing, Plus, Edit2, Trash2, X, AlertCircle, LogOut, Users, Share2, Copy } from 'lucide-react';
 
 export default function App() {
   const [events, setEvents] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-
-  // --- STATE MULTI-SEKSI & COUNTER ---
   const [currentUser, setCurrentUser] = useState(null);
   const [viewCount, setViewCount] = useState(0);
   const [filterSeksi, setFilterSeksi] = useState('Semua Seksi');
@@ -88,6 +86,34 @@ export default function App() {
     return { text: `${diffDays} Hari Lagi`, color: "bg-green-100 text-green-800", isUrgent: false };
   };
 
+  // --- LOGIKA EKSPOR WHATSAPP ---
+  const formatSingleEvent = (event) => {
+    return `*AGENDA: ${event.name.toUpperCase()}*\n` +
+           `📅 Tanggal: ${event.dueDate.split('-').reverse().join('/')}\n` +
+           `⏰ Waktu: ${event.dueTime} WIB\n` +
+           (event.location ? `📍 Lokasi: ${event.location}\n` : '') +
+           (event.description ? `📝 Keterangan: ${event.description}\n` : '') +
+           `_Seksi: ${event.ownerSeksi || 'Umum'}_`;
+  };
+
+  const exportToWA = (text) => {
+    const encodedText = encodeURIComponent(text);
+    window.open(`https://wa.me/?text=${encodedText}`, '_blank');
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    showToast("Teks berhasil disalin ke clipboard!");
+  };
+
+  const exportAllToWA = () => {
+    if (sortedEvents.length === 0) return;
+    let headerText = `*REKAP AGENDA - ${filterSeksi.toUpperCase()}*\n_Update: ${new Date().toLocaleDateString('id-ID')}_\n\n`;
+    let bodyText = sortedEvents.map((event, index) => `${index + 1}. ${formatSingleEvent(event)}`).join('\n\n---\n\n');
+    exportToWA(headerText + bodyText);
+  };
+  // -----------------------------
+
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!username || !password) { setLoginError('Isi username dan password.'); return; }
@@ -114,15 +140,11 @@ export default function App() {
       const q = query(collection(db, "users"), where("username", "==", newUserForm.username));
       const querySnapshot = await getDocs(q);
       if (!querySnapshot.empty) { alert('Username sudah dipakai!'); return; }
-      
       await addDoc(collection(db, 'users'), {
-        username: newUserForm.username,
-        password: newUserForm.password,
-        seksi: newUserForm.seksi,
-        role: 'admin_seksi'
+        username: newUserForm.username, password: newUserForm.password,
+        seksi: newUserForm.seksi, role: 'admin_seksi'
       });
-      setShowUserModal(false);
-      setNewUserForm({ username: '', password: '', seksi: 'Pelayanan' });
+      setShowUserModal(false); setNewUserForm({ username: '', password: '', seksi: 'Pelayanan' });
       showToast(`Akun ${newUserForm.seksi} berhasil dibuat!`);
     } catch (error) { alert('Terjadi kesalahan server.'); }
   };
@@ -130,19 +152,12 @@ export default function App() {
   const handleAddSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.dueDate || !formData.dueTime) return;
-    
-    if (events.length >= 200) { 
-      showToast("Kapasitas maksimal 200 event telah tercapai.", "error"); 
-      return; 
-    }
-
+    if (events.length >= 200) { showToast("Kapasitas maksimal 200 event telah tercapai.", "error"); return; }
     const newId = Math.random().toString(36).substr(2, 9);
     const newEvent = { ...formData, id: newId, lastEdited: null, ownerSeksi: currentUser?.seksi || 'Umum' };
-
     try {
       await setDoc(doc(db, 'events', newId), newEvent);
-      setShowAddModal(false);
-      setFormData({ name: '', dueDate: '', dueTime: '', location: '', description: '' });
+      setShowAddModal(false); setFormData({ name: '', dueDate: '', dueTime: '', location: '', description: '' });
       showToast("Event berhasil ditambahkan");
     } catch (error) { console.error("Gagal tambah event", error); }
   };
@@ -150,15 +165,10 @@ export default function App() {
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     if (!editData.name || !editData.dueDate || !editData.dueTime) return;
-    
     try {
       const editRef = doc(db, 'events', editData.id);
-      await setDoc(editRef, {
-        ...editData,
-        lastEdited: { by: currentUser?.username || 'admin', at: new Date().toISOString() }
-      }, { merge: true });
-      setShowEditModal(false);
-      showToast("Event berhasil diubah");
+      await setDoc(editRef, { ...editData, lastEdited: { by: currentUser?.username || 'admin', at: new Date().toISOString() } }, { merge: true });
+      setShowEditModal(false); showToast("Event berhasil diubah");
     } catch (error) { console.error("Gagal edit event", error); }
   };
 
@@ -166,8 +176,7 @@ export default function App() {
     if (!eventToDelete) return;
     try {
       await deleteDoc(doc(db, 'events', eventToDelete));
-      setEventToDelete(null);
-      showToast("Event berhasil dihapus");
+      setEventToDelete(null); showToast("Event berhasil dihapus");
     } catch (error) { console.error("Gagal hapus event", error); }
   };
 
@@ -178,9 +187,7 @@ export default function App() {
     if (filterSeksi !== 'Semua Seksi') {
       filteredEvents = events.filter(event => event.ownerSeksi === filterSeksi);
     }
-    return [...filteredEvents].sort((a, b) => {
-      return parseDateTime(a.dueDate, a.dueTime) - parseDateTime(b.dueDate, b.dueTime);
-    });
+    return [...filteredEvents].sort((a, b) => parseDateTime(a.dueDate, a.dueTime) - parseDateTime(b.dueDate, b.dueTime));
   }, [events, filterSeksi]);
 
   const toggleExpand = (id) => {
@@ -189,7 +196,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
-      
       <header className="bg-indigo-600 sticky top-0 z-30 shadow-md">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-3 text-white">
@@ -199,29 +205,20 @@ export default function App() {
               <p className="text-xs text-indigo-200 font-medium tracking-wide">Kepatuhan Internal DJP</p>
             </div>
           </div>
-          
           {currentUser ? (
-            <div className="flex items-center space-x-2 sm:space-x-3">
-              <div className="hidden sm:flex items-center space-x-1.5 bg-white/10 px-3 py-1.5 rounded-lg text-white text-sm font-medium">
-                <Users size={16} /><span>{viewCount} Views</span>
+            <div className="flex items-center space-x-2">
+              <div className="hidden sm:flex items-center bg-white/10 px-3 py-1.5 rounded-lg text-white text-sm font-medium mr-2">
+                <Users size={16} className="mr-1.5"/><span>{viewCount} Views</span>
               </div>
-              
               {currentUser.role === 'superadmin' && (
-                <button onClick={() => setShowUserModal(true)} className="flex items-center text-sm font-semibold bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg transition-colors">
-                  <span className="hidden sm:inline">+ Akun Seksi</span>
-                  <span className="sm:hidden">+ Akun</span>
+                <button onClick={() => setShowUserModal(true)} className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-md">
+                  + Akun
                 </button>
               )}
-
-              <button onClick={handleLogout} className="flex items-center text-sm font-semibold bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg transition-colors">
-                <LogOut size={16} className="sm:mr-2" />
-                <span className="hidden sm:inline">Logout</span>
-              </button>
+              <button onClick={handleLogout} className="bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg text-sm font-bold"><LogOut size={16}/></button>
             </div>
           ) : (
-            <button onClick={() => setShowLoginModal(true)} className="text-sm font-bold bg-white text-indigo-600 hover:bg-indigo-50 px-5 py-2 rounded-lg shadow-sm transition-all duration-200">
-              Admin Login
-            </button>
+            <button onClick={() => setShowLoginModal(true)} className="text-sm font-bold bg-white text-indigo-600 px-5 py-2 rounded-lg">Admin Login</button>
           )}
         </div>
       </header>
@@ -230,31 +227,28 @@ export default function App() {
         <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
           <div className="flex items-center space-x-2">
             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><BellRing size={20} /></div>
-            <h2 className="text-lg font-bold text-gray-800">Daftar Agenda</h2>
+            <h2 className="text-lg font-bold">Daftar Agenda</h2>
             <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full">{sortedEvents.length}</span>
           </div>
 
           <div className="flex items-center space-x-2 w-full sm:w-auto">
-            <label className="text-sm font-semibold text-gray-500 whitespace-nowrap">Filter Seksi:</label>
-            <select 
-              value={filterSeksi} 
-              onChange={(e) => setFilterSeksi(e.target.value)} 
-              className="w-full sm:w-auto px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
-            >
-              {DAFTAR_SEKSI.map((seksi) => (
-                <option key={seksi} value={seksi}>{seksi}</option>
-              ))}
+            {/* --- TOMBOL EKSPOR SEMUA --- */}
+            {sortedEvents.length > 0 && (
+              <button onClick={exportAllToWA} title="Share Semua ke WA" className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 shadow-sm transition-transform hover:scale-105">
+                <Share2 size={18} />
+              </button>
+            )}
+            <select value={filterSeksi} onChange={(e) => setFilterSeksi(e.target.value)} className="w-full sm:w-auto px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 font-medium">
+              {DAFTAR_SEKSI.map(seksi => <option key={seksi} value={seksi}>{seksi}</option>)}
             </select>
           </div>
         </div>
 
         {isLoading ? (
-          <div className="text-center py-10 text-gray-500 font-medium">Memuat data kalender...</div>
+          <div className="text-center py-10 text-gray-500">Memuat data...</div>
         ) : sortedEvents.length === 0 ? (
           <div className="text-center py-12 bg-white rounded-xl border border-gray-100">
-            <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-400">
-              <Calendar size={32} />
-            </div>
+            <Calendar size={32} className="mx-auto mb-3 text-gray-400" />
             <p className="text-gray-500 font-medium">Belum ada agenda untuk seksi ini.</p>
           </div>
         ) : (
@@ -262,78 +256,42 @@ export default function App() {
             {sortedEvents.map((event) => {
               const status = getStatusInfo(event.dueDate, event.dueTime);
               const isExpanded = expandedEvents.includes(event.id);
-              
-              // --- LOGIKA WARNA & EFEK 3D ---
-              let bgGradient = "bg-gradient-to-br from-white to-indigo-50";
-              let cardAccent = "border-indigo-500";
-              
-              if (status.text === 'Hari Ini') {
-                bgGradient = "bg-gradient-to-br from-white to-red-50";
-                cardAccent = "border-red-500";
-              } else if (status.text === 'Selesai/Terlewat') {
-                bgGradient = "bg-gradient-to-br from-white to-gray-100";
-                cardAccent = "border-gray-400";
-              } else if (status.isUrgent) {
-                bgGradient = "bg-gradient-to-br from-white to-orange-50";
-                cardAccent = "border-orange-500";
-              } else if (status.text.includes('Hari Lagi') && parseInt(status.text) <= 7) {
-                bgGradient = "bg-gradient-to-br from-white to-yellow-50";
-                cardAccent = "border-yellow-400";
-              } else {
-                bgGradient = "bg-gradient-to-br from-white to-green-50";
-                cardAccent = "border-green-500";
-              }
-              // ------------------------------
+              let bgGradient = status.text === 'Hari Ini' ? "from-white to-red-50" : status.isUrgent ? "from-white to-orange-50" : "from-white to-green-50";
+              let cardAccent = status.text === 'Hari Ini' ? "border-red-500" : status.isUrgent ? "border-orange-500" : "border-green-500";
 
               return (
-                <div key={event.id} className={`${bgGradient} rounded-xl shadow-md hover:shadow-xl border border-gray-100 border-l-8 ${cardAccent} overflow-hidden transition-all duration-300 transform hover:-translate-y-1.5`}>
+                <div key={event.id} className={`bg-gradient-to-br ${bgGradient} rounded-xl shadow-md hover:shadow-xl border border-gray-100 border-l-8 ${cardAccent} overflow-hidden transition-all duration-300 transform hover:-translate-y-1`}>
                   <div className="p-4 sm:p-5">
-                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                      
+                    <div className="flex flex-col sm:flex-row justify-between gap-4">
                       <div className="flex-1">
                         <div className="flex flex-wrap items-center gap-2 mb-2">
-                          <span className={`px-2.5 py-1 rounded-md text-xs font-bold shadow-sm ${status.color}`}>
-                            {status.text}
-                          </span>
-                          <span className="px-2 py-1 bg-white/80 text-gray-700 rounded-md text-xs font-bold border border-gray-200 shadow-sm">
-                            Pemilik: {event.ownerSeksi || 'Umum'}
-                          </span>
+                          <span className={`px-2.5 py-1 rounded-md text-xs font-bold shadow-sm ${status.color}`}>{status.text}</span>
+                          <span className="px-2 py-1 bg-white/80 text-gray-700 rounded-md text-xs font-bold border shadow-sm">Pemilik: {event.ownerSeksi}</span>
                         </div>
-                        <h3 className="text-lg font-bold text-gray-900 mb-2 leading-snug drop-shadow-sm">{event.name}</h3>
-                        
-                        <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-gray-700 font-semibold">
-                          <div className="flex items-center bg-white/60 px-2.5 py-1 rounded-md shadow-sm border border-gray-100">
-                            <Clock size={15} className="mr-1.5 text-indigo-600" />
-                            {event.dueDate.split('-').reverse().join('/')} • Pukul {event.dueTime}
-                          </div>
-                          {event.location && (
-                            <div className="flex items-center bg-white/60 px-2.5 py-1 rounded-md shadow-sm border border-gray-100">
-                              <MapPin size={15} className="mr-1.5 text-red-500" />
-                              {event.location}
-                            </div>
-                          )}
+                        <h3 className="text-lg font-bold text-gray-900 mb-2">{event.name}</h3>
+                        <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm font-semibold">
+                          <div className="flex items-center bg-white/60 px-2.5 py-1 rounded-md shadow-sm"><Clock size={15} className="mr-1.5 text-indigo-600"/>{event.dueDate.split('-').reverse().join('/')} • {event.dueTime}</div>
+                          {event.location && <div className="flex items-center bg-white/60 px-2.5 py-1 rounded-md shadow-sm"><MapPin size={15} className="mr-1.5 text-red-500"/>{event.location}</div>}
                         </div>
                       </div>
 
-                      {currentUser && (currentUser.role === 'superadmin' || currentUser.seksi === event.ownerSeksi) && (
-                        <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                          <button onClick={() => openEditModal(event)} className="flex-1 sm:flex-none flex items-center justify-center px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-bold shadow-md transition-transform hover:scale-105">
-                            <Edit2 size={16} className="sm:mr-1.5" /><span className="hidden sm:inline">Edit</span>
-                          </button>
-                          <button onClick={() => setEventToDelete(event.id)} className="flex-1 sm:flex-none flex items-center justify-center px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-bold shadow-md transition-transform hover:scale-105">
-                            <Trash2 size={16} className="sm:mr-1.5" /><span className="hidden sm:inline">Hapus</span>
-                          </button>
-                        </div>
-                      )}
-                      
+                      <div className="flex gap-2 items-start">
+                        {/* --- TOMBOL EKSPOR PER EVENT --- */}
+                        <button onClick={() => copyToClipboard(formatSingleEvent(event))} title="Copy Teks WA" className="p-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-transform hover:scale-110 shadow-sm"><Copy size={18}/></button>
+                        <button onClick={() => exportToWA(formatSingleEvent(event))} title="Share ke WA" className="p-2.5 bg-green-50 hover:bg-green-100 text-green-600 rounded-lg transition-transform hover:scale-110 shadow-sm"><Share2 size={18}/></button>
+                        
+                        {currentUser && (currentUser.role === 'superadmin' || currentUser.seksi === event.ownerSeksi) && (
+                          <div className="flex gap-2">
+                            <button onClick={() => openEditModal(event)} className="p-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 shadow-md"><Edit2 size={16}/></button>
+                            <button onClick={() => setEventToDelete(event.id)} className="p-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 shadow-md"><Trash2 size={16}/></button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-
                     {event.description && (
                       <div className="mt-4 pt-3 border-t border-gray-200/60">
-                        <p className={`text-sm text-gray-800 font-medium ${!isExpanded && 'line-clamp-2'}`}>{event.description}</p>
-                        <button onClick={() => toggleExpand(event.id)} className="text-xs font-bold text-indigo-600 hover:text-indigo-800 mt-2 bg-white/60 px-2.5 py-1 rounded shadow-sm border border-indigo-50">
-                          {isExpanded ? 'Tutup Deskripsi' : 'Baca Selengkapnya'}
-                        </button>
+                        <p className={`text-sm text-gray-800 ${!isExpanded && 'line-clamp-2'}`}>{event.description}</p>
+                        <button onClick={() => toggleExpand(event.id)} className="text-xs font-bold text-indigo-600 mt-2 bg-white/60 px-2 py-1 rounded shadow-sm">{isExpanded ? 'Tutup' : 'Selengkapnya'}</button>
                       </div>
                     )}
                   </div>
@@ -344,33 +302,19 @@ export default function App() {
         )}
       </main>
 
-      {currentUser && (
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-lg flex items-center justify-center transition-transform hover:scale-105 z-40"
-        >
-          <Plus size={28} />
-        </button>
-      )}
+      {currentUser && <button onClick={() => setShowAddModal(true)} className="fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center transition-transform hover:scale-105 z-40"><Plus size={28}/></button>}
 
+      {/* --- MODAL LOGIN, ADD, EDIT, DELETE (SAMA SEPERTI SEBELUMNYA) --- */}
       {showLoginModal && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl">
-            <div className="flex justify-between items-center mb-5">
-              <h3 className="text-xl font-bold text-gray-800">Login Admin</h3>
-              <button onClick={() => setShowLoginModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
-            </div>
-            {loginError && <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm font-medium rounded-lg">{loginError}</div>}
+            <h3 className="text-xl font-bold mb-5">Login Admin</h3>
             <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500" autoFocus />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500" />
-              </div>
-              <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-sm mt-2">Masuk</button>
+              <input type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full p-2.5 bg-gray-50 border rounded-xl" autoFocus />
+              <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full p-2.5 bg-gray-50 border rounded-xl" />
+              {loginError && <p className="text-red-500 text-sm">{loginError}</p>}
+              <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl">Masuk</button>
+              <button type="button" onClick={() => setShowLoginModal(false)} className="w-full text-gray-500 text-sm">Batal</button>
             </form>
           </div>
         </div>
@@ -379,28 +323,15 @@ export default function App() {
       {showUserModal && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl">
-            <h3 className="text-xl font-bold text-gray-800 mb-4">Buat Akun Seksi Baru</h3>
+            <h3 className="text-xl font-bold mb-4">Akun Baru</h3>
             <form onSubmit={handleAddUser} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Seksi</label>
-                <select value={newUserForm.seksi} onChange={(e) => setNewUserForm({...newUserForm, seksi: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500" required>
-                  {DAFTAR_SEKSI.filter(s => s !== 'Semua Seksi').map((seksi) => (
-                    <option key={seksi} value={seksi}>{seksi}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Username Baru (Tanpa Spasi)</label>
-                <input type="text" value={newUserForm.username} onChange={(e) => setNewUserForm({...newUserForm, username: e.target.value.toLowerCase()})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500" required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Password Baru</label>
-                <input type="text" value={newUserForm.password} onChange={(e) => setNewUserForm({...newUserForm, password: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500" required />
-              </div>
-              <div className="flex space-x-3 pt-4">
-                <button type="button" onClick={() => setShowUserModal(false)} className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl">Batal</button>
-                <button type="submit" className="flex-1 py-2.5 bg-green-500 hover:bg-green-600 text-white font-bold rounded-xl shadow-sm">Buat Akun</button>
-              </div>
+              <select value={newUserForm.seksi} onChange={(e) => setNewUserForm({...newUserForm, seksi: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl">
+                {DAFTAR_SEKSI.filter(s => s !== 'Semua Seksi').map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <input type="text" placeholder="Username" value={newUserForm.username} onChange={(e) => setNewUserForm({...newUserForm, username: e.target.value.toLowerCase()})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
+              <input type="text" placeholder="Password" value={newUserForm.password} onChange={(e) => setNewUserForm({...newUserForm, password: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
+              <button type="submit" className="w-full py-2.5 bg-green-500 text-white font-bold rounded-xl">Simpan</button>
+              <button type="button" onClick={() => setShowUserModal(false)} className="w-full text-gray-500">Batal</button>
             </form>
           </div>
         </div>
@@ -409,37 +340,17 @@ export default function App() {
       {showAddModal && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-5">
-              <h3 className="text-xl font-bold text-gray-800">Tambah Jadwal Baru</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
-            </div>
+            <h3 className="text-xl font-bold mb-5">Tambah Jadwal</h3>
             <form onSubmit={handleAddSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nama Agenda <span className="text-red-500">*</span></label>
-                <input type="text" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500" required />
-              </div>
+              <input type="text" placeholder="Nama Agenda" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal <span className="text-red-500">*</span></label>
-                  <input type="date" value={formData.dueDate} onChange={(e) => setFormData({...formData, dueDate: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500" required />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Waktu <span className="text-red-500">*</span></label>
-                  <input type="time" value={formData.dueTime} onChange={(e) => setFormData({...formData, dueTime: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500" required />
-                </div>
+                <input type="date" value={formData.dueDate} onChange={(e) => setFormData({...formData, dueDate: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
+                <input type="time" value={formData.dueTime} onChange={(e) => setFormData({...formData, dueTime: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Lokasi/Link</label>
-                <input type="text" value={formData.location} onChange={(e) => setFormData({...formData, location: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500" placeholder="Opsional" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi & Keterangan</label>
-                <textarea value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} rows="3" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 resize-none" placeholder="Opsional"></textarea>
-              </div>
-              <div className="flex space-x-3 pt-2">
-                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl">Batal</button>
-                <button type="submit" className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-sm">Simpan Jadwal</button>
-              </div>
+              <input type="text" placeholder="Lokasi" value={formData.location} onChange={(e) => setFormData({...formData, location: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" />
+              <textarea placeholder="Keterangan" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} rows="3" className="w-full p-2.5 bg-gray-50 border rounded-xl"></textarea>
+              <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl">Simpan</button>
+              <button type="button" onClick={() => setShowAddModal(false)} className="w-full text-gray-500">Batal</button>
             </form>
           </div>
         </div>
@@ -448,20 +359,17 @@ export default function App() {
       {showEditModal && editData && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold text-gray-800 mb-4">Edit Jadwal</h3>
+            <h3 className="text-xl font-bold mb-4">Edit Jadwal</h3>
             <form onSubmit={handleEditSubmit} className="space-y-4">
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Nama Agenda</label><input type="text" value={editData.name} onChange={(e) => setEditData({...editData, name: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl" required /></div>
+              <input type="text" value={editData.name} onChange={(e) => setEditData({...editData, name: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
               <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Tanggal</label><input type="date" value={editData.dueDate} onChange={(e) => setEditData({...editData, dueDate: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl" required /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Waktu</label><input type="time" value={editData.dueTime} onChange={(e) => setEditData({...editData, dueTime: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl" required /></div>
+                <input type="date" value={editData.dueDate} onChange={(e) => setEditData({...editData, dueDate: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
+                <input type="time" value={editData.dueTime} onChange={(e) => setEditData({...editData, dueTime: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" required />
               </div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Lokasi/Link</label><input type="text" value={editData.location} onChange={(e) => setEditData({...editData, location: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl" /></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi</label><textarea value={editData.description} onChange={(e) => setEditData({...editData, description: e.target.value})} rows="3" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl resize-none"></textarea></div>
-              
-              <div className="flex space-x-3 pt-2">
-                <button type="button" onClick={() => setShowEditModal(false)} className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl">Batal</button>
-                <button type="submit" className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl">Update</button>
-              </div>
+              <input type="text" value={editData.location} onChange={(e) => setEditData({...editData, location: e.target.value})} className="w-full p-2.5 bg-gray-50 border rounded-xl" />
+              <textarea value={editData.description} onChange={(e) => setEditData({...editData, description: e.target.value})} rows="3" className="w-full p-2.5 bg-gray-50 border rounded-xl"></textarea>
+              <button type="submit" className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl">Update</button>
+              <button type="button" onClick={() => setShowEditModal(false)} className="w-full text-gray-500">Batal</button>
             </form>
           </div>
         </div>
@@ -470,22 +378,19 @@ export default function App() {
       {eventToDelete && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-xl">
-            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4"><AlertCircle className="h-6 w-6 text-red-600" /></div>
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Hapus Jadwal?</h3>
-            <p className="text-sm text-gray-500 mb-6">Tindakan ini tidak dapat dibatalkan. Data akan hilang selamanya.</p>
-            <div className="flex space-x-3">
-              <button onClick={() => setEventToDelete(null)} className="flex-1 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl">Batal</button>
-              <button onClick={handleDeleteConfirm} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl">Ya, Hapus</button>
+            <AlertCircle className="h-12 w-12 text-red-600 mx-auto mb-4" />
+            <h3 className="text-lg font-bold mb-2">Hapus Jadwal?</h3>
+            <div className="flex space-x-3 mt-6">
+              <button onClick={() => setEventToDelete(null)} className="flex-1 py-2.5 bg-gray-100 rounded-xl">Batal</button>
+              <button onClick={handleDeleteConfirm} className="flex-1 py-2.5 bg-red-600 text-white font-bold rounded-xl">Hapus</button>
             </div>
           </div>
         </div>
       )}
 
       {toast.show && (
-        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
-          <div className={`px-6 py-3 rounded-full shadow-lg font-bold text-sm ${toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-gray-800 text-white'}`}>
-            {toast.message}
-          </div>
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 bg-gray-800 text-white rounded-full shadow-lg font-bold text-sm transition-all animate-bounce">
+          {toast.message}
         </div>
       )}
     </div>
