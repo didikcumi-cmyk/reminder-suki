@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from './firebase'; 
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, where, getDocs, increment, addDoc, updateDoc } from 'firebase/firestore';
-import { Calendar, Clock, MapPin, BellRing, Plus, Edit2, Trash2, X, AlertCircle, LogOut, Users, Copy, FileText, Settings, ShieldAlert, CheckCircle2, Circle } from 'lucide-react';
-import * as XLSX from 'xlsx'; // Mengaktifkan kembali pustaka Excel
+import { Calendar, Clock, MapPin, BellRing, Plus, Edit2, Trash2, X, AlertCircle, LogOut, Users, Copy, FileText, Settings, CheckCircle2, Circle } from 'lucide-react';
 
 export default function App() {
   const [events, setEvents] = useState([]);
-  const [logs, setLogs] = useState([]); // State baru untuk menyimpan data Log
+  const [logs, setLogs] = useState([]); 
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [viewCount, setViewCount] = useState(0);
   const [filterSeksi, setFilterSeksi] = useState('Semua Seksi');
-  const [viewMode, setViewMode] = useState('active'); // Mode Tampilan: 'active' (Jatuh Tempo), 'riwayat' (Riwayat Space), 'log' (Log Tabel)
+  const [viewMode, setViewMode] = useState('active'); // Mode Tampilan: 'active' (Jatuh Tempo), 'riwayat' (Space Riwayat), 'log' (Log Tabel)
 
   const [allUsers, setAllUsers] = useState([]);
   const [showUserModal, setShowUserModal] = useState(false);
@@ -40,7 +39,7 @@ export default function App() {
   const [formData, setFormData] = useState({ name: '', dueDate: '', dueTime: '', location: '', description: '' });
   const [editData, setEditData] = useState(null);
 
-  // --- AMBIL DATA JADWAL (EVENTS) ---
+  // --- READ DATA EVENTS ---
   useEffect(() => {
     const q = collection(db, 'events');
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -50,7 +49,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- AMBIL DATA LOG (RIWAYAT TERARSIP) ---
+  // --- READ DATA LOGS ---
   useEffect(() => {
     const q = collection(db, 'logs');
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -59,7 +58,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- AMBIL DATA AKUN (KHUSUS SUPERADMIN) ---
+  // --- READ DATA USER CONTROL (SUPERADMIN) ---
   useEffect(() => {
     if (currentUser?.role === 'superadmin') {
       const q = collection(db, 'users');
@@ -70,7 +69,7 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // --- SISTEM OTOMASI CLEANUP & AUTO-ARCHIVE (CLIENT-SIDE CRON) ---
+  // --- SISTEM OTOMASI CLEANUP & AUTO-ARCHIVE (> 1 BULAN) ---
   useEffect(() => {
     if (events.length === 0) return;
 
@@ -79,27 +78,27 @@ export default function App() {
       now.setHours(0, 0, 0, 0);
 
       for (const event of events) {
+        if (!event.dueDate) continue;
         const [year, month, day] = event.dueDate.split('-');
         const due = new Date(year, month - 1, day);
         due.setHours(0, 0, 0, 0);
         
-        // Hitung berapa hari terlewat dari hari ini
         const daysPassed = Math.floor((now - due) / (1000 * 60 * 60 * 24));
 
-        // Jika melewati 30 hari (1 bulan), pindahkan ke Log dan hapus dari kartu aktif
+        // Jika melewati 30 hari (1 bulan), otomatis migrasi ke Log dan hapus kartu aktif
         if (daysPassed > 30) {
           try {
             await addDoc(collection(db, 'logs'), {
-              agenda: event.name,
+              agenda: event.name || '-',
               description: event.description || '-',
               ownerSeksi: event.ownerSeksi || 'Umum',
               dueDate: event.dueDate,
-              createdAt: event.createdAt || new Date().toISOString(), // Tanggal Input
+              createdAt: event.createdAt || new Date().toISOString(),
               archivedAt: new Date().toISOString()
             });
             await deleteDoc(doc(db, 'events', event.id));
           } catch (err) {
-            console.error("Gagal melakukan auto-arsip agenda:", err);
+            console.error("Gagal melakukan auto-arsip:", err);
           }
         }
       }
@@ -107,7 +106,7 @@ export default function App() {
     processAutoArchive();
   }, [events]);
 
-  // --- OTOMASI HAPUS LOG YANG SUDAH MELEWATI 1 TAHUN ---
+  // --- SISTEM OTOMASI PEMBERSIHAN LOG LAMA (> 1 TAHUN) ---
   useEffect(() => {
     if (logs.length === 0) return;
     const cleanOldLogs = async () => {
@@ -116,9 +115,13 @@ export default function App() {
         if (log.archivedAt) {
           const archivedDate = new Date(log.archivedAt);
           const ageInDays = Math.floor((now - archivedDate) / (1000 * 60 * 60 * 24));
-          // Jika data log sudah lebih dari 365 hari (1 tahun), hapus permanen
+          // Menghapus berkas log otomatis jika usianya sudah melebihi 1 tahun (365 hari)
           if (ageInDays > 365) {
-            await deleteDoc(doc(db, 'logs', log.id));
+            try {
+              await deleteDoc(doc(db, 'logs', log.id));
+            } catch (err) {
+              console.error(err);
+            }
           }
         }
       }
@@ -126,7 +129,7 @@ export default function App() {
     cleanOldLogs();
   }, [logs]);
 
-  // --- STATISTIK VIEWER COUNTER ---
+  // --- VIEWER COUNTER ---
   useEffect(() => {
     const recordVisit = async () => {
       if (!sessionStorage.getItem('sudah_berkunjung')) {
@@ -159,7 +162,6 @@ export default function App() {
     return new Date(year, month - 1, day, hours, minutes);
   };
 
-  // --- LOGIKA TAMPILAN URGENSI WARNA KARTU ---
   const getStatusInfo = (dueDate, dueTime, isDone) => {
     if (isDone) return { text: "Selesai", color: "bg-green-100 text-green-800", level: 'done' };
     
@@ -174,35 +176,60 @@ export default function App() {
       return { text: "TERLEWAT", color: "bg-red-900 text-white", level: 'overdue' };
     }
     if (diffDays === 0) return { text: "HARI INI", color: "bg-red-500 text-white animate-pulse", level: 'critical' };
-    if (diffDays <= 3) return { text: "MENDESAK", color: "bg-orange-100 text-orange-800", level: 'urgent' };
-    if (diffDays <= 7) return { text: "ATENSI", color: "bg-yellow-100 text-yellow-800", level: 'warning' };
+    if (diffDays <= 3) return { text: "MENDESAK", color: "bg-orange-100 text-orange-800 border-orange-500", level: 'urgent' };
+    if (diffDays <= 7) return { text: "ATENSI", color: "bg-yellow-100 text-yellow-800 border-yellow-500", level: 'warning' };
     return { text: "AMAN", color: "bg-blue-100 text-blue-800", level: 'safe' };
   };
 
-  // --- UNDUH EXCEL UNTUK DATA LOG ---
+  // --- EKSPOR NATIVE EXCEL TANPA MODUL EKSTERNAL (MENCEGAH ERROR VERCEL) ---
   const exportLogsToExcel = () => {
     if (sortedLogs.length === 0) return;
-    const excelData = sortedLogs.map((log, index) => ({
-      "Nomor": index + 1,
-      "Tanggal Input": log.createdAt ? new Date(log.createdAt).toLocaleDateString('id-ID') : '-',
-      "Seksi": log.ownerSeksi,
-      "Agenda": log.agenda,
-      "Keterangan": log.description,
-      "Tanggal JT": log.dueDate.split('-').reverse().join('/')
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(excelData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Log Arsip");
-    XLSX.writeFile(workbook, `Log_Riwayat_SUKI_${filterSeksi}.xlsx`);
-    showToast("Tabel Log Berhasil Diunduh!");
+    
+    let htmlTable = `<table border="1">
+      <thead>
+        <tr style="background-color: #4f46e5; color: white; font-weight: bold;">
+          <th>Nomor</th>
+          <th>Tanggal Input</th>
+          <th>Seksi</th>
+          <th>Agenda</th>
+          <th>Keterangan</th>
+          <th>Tanggal JT</th>
+        </tr>
+      </thead>
+      <tbody>`;
+    
+    sortedLogs.forEach((log, index) => {
+      const tglInput = log.createdAt ? new Date(log.createdAt).toLocaleDateString('id-ID') : '-';
+      const tglJT = log.dueDate.split('-').reverse().join('/');
+      htmlTable += `<tr>
+        <td>${index + 1}</td>
+        <td>${tglInput}</td>
+        <td>${log.ownerSeksi}</td>
+        <td>${log.agenda}</td>
+        <td>${log.description}</td>
+        <td>${tglJT}</td>
+      </tr>`;
+    });
+    
+    htmlTable += `</tbody></table>`;
+    
+    const blob = new Blob([htmlTable], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Log_Riwayat_SUKI_${filterSeksi}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast("File Excel Berhasil Diunduh!");
   };
 
   const toggleEventStatus = async (id, currentStatus) => {
     try {
       await updateDoc(doc(db, 'events', id), { isDone: !currentStatus });
-      showToast("Status agenda berhasil diubah");
-    } catch (error) { alert("Gagal update status"); }
+      showToast("Status agenda berhasil diperbarui");
+    } catch (error) { alert("Gagal memperbarui status"); }
   };
 
   const handleExportAll = () => {
@@ -218,7 +245,6 @@ export default function App() {
     setShowExportModal(true);
   };
 
-  // --- PENYARINGAN KARTU SESUAI SPACE DAN MODE ---
   const sortedEvents = useMemo(() => {
     let filtered = events;
     if (filterSeksi !== 'Semua Seksi') filtered = filtered.filter(e => e.ownerSeksi === filterSeksi);
@@ -227,23 +253,21 @@ export default function App() {
     now.setHours(0, 0, 0, 0);
 
     return [...filtered].filter(event => {
+      if (!event.dueDate) return false;
       const [year, month, day] = event.dueDate.split('-');
       const due = new Date(year, month - 1, day);
       due.setHours(0, 0, 0, 0);
       const daysPassed = Math.floor((now - due) / (1000 * 60 * 60 * 24));
 
       if (viewMode === 'active') {
-        // Jatuh tempo: Belum lewat 5 hari
         return daysPassed < 5;
       } else if (viewMode === 'riwayat') {
-        // Riwayat Space: Sudah lewat 5 hari sampai maksimal 30 hari
         return daysPassed >= 5 && daysPassed <= 30;
       }
       return false;
     }).sort((a, b) => parseDateTime(a.dueDate, a.dueTime) - parseDateTime(b.dueDate, b.dueTime));
   }, [events, filterSeksi, viewMode]);
 
-  // --- FILTER DAN SORTING LOG ---
   const sortedLogs = useMemo(() => {
     let filtered = logs;
     if (filterSeksi !== 'Semua Seksi') filtered = filtered.filter(l => l.ownerSeksi === filterSeksi);
@@ -264,15 +288,31 @@ export default function App() {
     } catch (error) { setLoginError('Koneksi bermasalah.'); }
   };
 
+  const handleAddUser = async (e) => {
+    e.preventDefault();
+    try {
+      const q = query(collection(db, "users"), where("username", "==", newUserForm.username));
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) { alert('Username sudah ada!'); return; }
+      await addDoc(collection(db, 'users'), { ...newUserForm, role: 'admin_seksi' });
+      setShowUserModal(false); setNewUserForm({ username: '', password: '', seksi: 'Pelayanan' });
+      showToast("Akun seksi berhasil dibuat!");
+    } catch (error) { alert('Gagal membuat akun.'); }
+  };
+
   const handleAddSubmit = async (e) => {
     e.preventDefault();
+    if (events.length >= 50) {
+      showToast("Kapasitas maksimal 50 event telah tercapai.", "error");
+      return;
+    }
     const newId = Math.random().toString(36).substr(2, 9);
     const newEvent = { 
       ...formData, 
       id: newId, 
       isDone: false, 
       ownerSeksi: currentUser?.seksi || 'Umum',
-      createdAt: new Date().toISOString() // Pencatatan tanggal input agenda asli
+      createdAt: new Date().toISOString()
     };
     try {
       await setDoc(doc(db, 'events', newId), newEvent);
@@ -283,6 +323,7 @@ export default function App() {
 
   const handleEditSubmit = async (e) => {
     e.preventDefault();
+    if (!editData) return;
     try {
       await setDoc(doc(db, 'events', editData.id), editData, { merge: true });
       setShowEditModal(false); showToast("Agenda berhasil diubah");
@@ -290,6 +331,7 @@ export default function App() {
   };
 
   const handleDeleteConfirm = async () => {
+    if (!eventToDelete) return;
     try {
       await deleteDoc(doc(db, 'events', eventToDelete));
       setEventToDelete(null); showToast("Agenda berhasil dihapus");
@@ -317,43 +359,41 @@ export default function App() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {/* --- PANEL NAVIGASI BARU (SESUAI ATURAN POIN 4) --- */}
+        {/* --- PANEL NAVIGASI SESUAI POIN 4 --- */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4 mb-6 items-center justify-between">
           <div className="flex items-center space-x-2">
             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><BellRing size={20} /></div>
-            <h2 className="font-bold text-gray-700">Akses Ruang Monitoring</h2>
+            <h2 className="font-bold text-gray-700">Panel Pemantauan</h2>
           </div>
           
           <div className="flex flex-wrap gap-2 items-center w-full md:w-auto justify-end">
-            {/* Tombol Rekap Teks */}
             {sortedEvents.length > 0 && viewMode !== 'log' && (
               <button onClick={handleExportAll} className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md">
                 <FileText size={14} /> Rekap
               </button>
             )}
 
-            {/* Tombol Navigasi Space Samping Rekap */}
+            {/* Navigasi Sejajar di Samping Tombol Rekap */}
             <button onClick={() => setViewMode('active')} className={`px-4 py-2 rounded-xl text-xs font-black shadow-sm transition-all ${viewMode === 'active' ? 'bg-indigo-600 text-white border-b-4 border-indigo-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Jatuh Tempo</button>
             <button onClick={() => setViewMode('riwayat')} className={`px-4 py-2 rounded-xl text-xs font-black shadow-sm transition-all ${viewMode === 'riwayat' ? 'bg-purple-600 text-white border-b-4 border-purple-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Space Riwayat</button>
             <button onClick={() => setViewMode('log')} className={`px-4 py-2 rounded-xl text-xs font-black shadow-sm transition-all ${viewMode === 'log' ? 'bg-orange-500 text-white border-b-4 border-orange-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Log Riwayat</button>
 
-            {/* Filter Seksi */}
             <select value={filterSeksi} onChange={(e) => setFilterSeksi(e.target.value)} className="bg-gray-100 px-3 py-2 rounded-xl text-xs font-bold border-none outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer">
               {DAFTAR_SEKSI.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
         </div>
 
-        {/* --- KONDISI TAMPILAN: TABEL LOG RIWAYAT (POIN 3) --- */}
+        {/* --- TABEL LOG RIWAYAT (POIN 3) --- */}
         {viewMode === 'log' ? (
-          <div className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 overflow-x-auto transform transition-all duration-300">
+          <div className="bg-white p-5 rounded-2xl shadow-md border border-gray-100 overflow-x-auto">
             <div className="flex justify-between items-center mb-4 bg-gray-50 p-3 rounded-xl border">
               <div>
                 <h3 className="font-black text-gray-800 text-md">Tabel Log Arsip Agenda (&gt; 1 Bulan)</h3>
-                <p className="text-xs text-gray-400 font-medium">Data tersimpan otomatis untuk siklus masa 1 tahun.</p>
+                <p className="text-xs text-gray-400 font-medium">Data dibersihkan secara otomatis oleh sistem setelah melewati masa 1 tahun.</p>
               </div>
               {sortedLogs.length > 0 && (
-                <button onClick={exportLogsToExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-all">
+                <button onClick={exportLogsToExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md">
                   <FileText size={14} /> Unduh Excel
                 </button>
               )}
@@ -361,12 +401,12 @@ export default function App() {
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b-2 border-gray-200 bg-gray-100 text-gray-600 font-black uppercase tracking-wider">
-                  <th className="py-3 px-4 rounded-l-lg">Nomor</th>
+                  <th className="py-3 px-4">Nomor</th>
                   <th className="py-3 px-4">Tanggal Input</th>
                   <th className="py-3 px-4">Seksi</th>
                   <th className="py-3 px-4">Agenda</th>
                   <th className="py-3 px-4">Keterangan</th>
-                  <th className="py-3 px-4 rounded-r-lg">Tanggal JT</th>
+                  <th className="py-3 px-4">Tanggal JT</th>
                 </tr>
               </thead>
               <tbody>
@@ -374,7 +414,7 @@ export default function App() {
                   <tr><td colSpan="6" className="text-center py-10 text-gray-400 font-bold">Belum ada data arsip log otomatis.</td></tr>
                 ) : (
                   sortedLogs.map((log, index) => (
-                    <tr key={log.id} className="border-b border-gray-100 hover:bg-gray-50 font-bold text-gray-700 transition-colors">
+                    <tr key={log.id} className="border-b border-gray-100 hover:bg-gray-50 font-bold text-gray-700">
                       <td className="py-3 px-4 text-gray-400">{index + 1}</td>
                       <td className="py-3 px-4">{log.createdAt ? new Date(log.createdAt).toLocaleDateString('id-ID') : '-'}</td>
                       <td className="py-3 px-4"><span className="px-2 py-0.5 bg-indigo-50 border border-indigo-100 rounded text-[10px] font-black text-indigo-700">{log.ownerSeksi}</span></td>
@@ -388,9 +428,9 @@ export default function App() {
             </table>
           </div>
         ) : (
-          /* --- KONDISI TAMPILAN KARTU (JATUH TEMPO & RIWAYAT SPACE) --- */
+          /* --- MONITORING KARTU (JATUH TEMPO & SPACE RIWAYAT POIN 2) --- */
           isLoading ? ( <div className="text-center py-10 font-bold text-gray-400">Sinkronisasi data...</div> ) : sortedEvents.length === 0 ? (
-            <div className="text-center py-16 bg-white rounded-2xl border-2 border-dashed border-gray-200 text-gray-400 font-black"><AlertCircle size={48} className="mx-auto mb-4 opacity-20"/>Tidak ada agenda aktif di ruang monitor ini.</div>
+            <div className="text-center py-16 bg-white rounded-2xl border-2 border-dashed border-gray-200 text-gray-400 font-black"><AlertCircle size={48} className="mx-auto mb-4 opacity-20"/>Tidak ada agenda ditemukan di ruang monitor ini.</div>
           ) : (
             <div className="space-y-4">
               {sortedEvents.map((event) => {
@@ -401,7 +441,7 @@ export default function App() {
                                 status.level === 'done' ? 'border-green-400 bg-gray-50 opacity-75' : 'border-gray-200 bg-white';
                 
                 return (
-                  <div key={event.id} className={`group border-l-8 rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden border ${cardStyle} transform hover:-translate-y-1`}>
+                  <div key={event.id} className={`group border-l-8 rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 border ${cardStyle} transform hover:-translate-y-1`}>
                     <div className="p-5 flex flex-col md:flex-row gap-5 items-start">
                       <div className="mt-1">
                         {currentUser && (currentUser.role === 'superadmin' || currentUser.seksi === event.ownerSeksi) ? (
@@ -420,13 +460,17 @@ export default function App() {
                         </div>
                         <h3 className={`text-lg font-black leading-tight mb-3 ${event.isDone ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{event.name}</h3>
                         <div className="flex flex-wrap gap-3 text-xs font-bold text-gray-500">
-                          <div className="flex items-center px-2 py-1 bg-white border rounded-md shadow-sm"><Clock size={14} className="mr-1.5 text-indigo-500"/>{event.dueDate.split('-').reverse().join('/')} • {event.dueTime} WIB</div>
-                          {event.location && <div className="flex items-center px-2 py-1 bg-white border rounded-md shadow-sm"><MapPin size={14} className="mr-1.5 text-red-500"/>{event.location}</div>}
+                          <div className="flex items-center px-2 py-1 bg-white border rounded-md shadow-sm border-gray-100"><Clock size={14} className="mr-1.5 text-indigo-500"/>{event.dueDate.split('-').reverse().join('/')} • {event.dueTime} WIB</div>
+                          {event.location && <div className="flex items-center px-2 py-1 bg-white border rounded-md shadow-sm border-gray-100"><MapPin size={14} className="mr-1.5 text-red-500"/>{event.location}</div>}
                         </div>
                       </div>
 
                       <div className="flex md:flex-col gap-2 w-full md:w-auto">
-                        <button onClick={() => {setExportText(formatSingleEvent(event)); setShowExportModal(true);}} className="flex-1 p-2.5 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200 transition-colors"><FileText size={18}/></button>
+                        <button onClick={() => {
+                          const tgl = event.dueDate.split('-').reverse().join('/');
+                          setExportText(`izin menyampaikan reminder *${event.name}* untuk dilaksanakan paling lambat *${tgl} pukul ${event.dueTime} WIB*\n\nhal-hal untuk diketahui:\n${event.description || '-'}\n\nuntuk lebih jelas dapat mengunjungi tautan s.kemenkeu.go.id/ReminderSUKI\n\nTerima kasih atas perhatiannya\n\nTim ${event.ownerSeksi || 'Kepatuhan Internal'}`);
+                          setShowExportModal(true);
+                        }} className="flex-1 p-2.5 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200"><FileText size={18}/></button>
                         {currentUser && (currentUser.role === 'superadmin' || currentUser.seksi === event.ownerSeksi) && (
                           <>
                             <button onClick={() => {setEditData(event); setShowEditModal(true);}} className="flex-1 p-2.5 bg-blue-500 text-white rounded-xl shadow-md hover:bg-blue-600"><Edit2 size={18}/></button>
@@ -451,7 +495,7 @@ export default function App() {
 
       {currentUser && <button onClick={() => setShowAddModal(true)} className="fixed bottom-8 right-8 w-16 h-16 bg-indigo-600 text-white rounded-full shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-40"><Plus size={32}/></button>}
 
-      {/* --- MODAL EKSPOR POP-UP --- */}
+      {/* --- MODAL EXPORT --- */}
       {showExportModal && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl w-full max-w-lg p-8 shadow-2xl border-t-8 border-indigo-600">
@@ -471,8 +515,8 @@ export default function App() {
           <div className="bg-white rounded-3xl w-full max-w-sm p-8 shadow-2xl">
             <h3 className="text-2xl font-black mb-6 text-indigo-600">Admin Area</h3>
             <form onSubmit={handleLogin} className="space-y-4">
-              <input type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl focus:border-indigo-500 outline-none font-bold" />
-              <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl focus:border-indigo-500 outline-none font-bold" />
+              <input type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none font-bold" />
+              <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none font-bold" />
               {loginError && <p className="text-red-500 text-xs font-bold text-center italic">{loginError}</p>}
               <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl">MASUK SISTEM</button>
             </form>
@@ -480,7 +524,7 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL MANAGE USER (SUPERADMIN CONTROL PANEL) --- */}
+      {/* --- MODAL CONTROL USER --- */}
       {showManageUserModal && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl w-full max-w-2xl p-8 shadow-2xl max-h-[80vh] flex flex-col border-t-8 border-orange-500">
@@ -494,9 +538,9 @@ export default function App() {
                 <div key={user.id} className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100 flex justify-between items-center">
                   <div><p className="font-black text-gray-900">{user.username}</p><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Seksi: {user.seksi}</p></div>
                   <div className="flex gap-2">
-                    <button onClick={() => {const np = prompt("Ketik Password Baru:"); if(np) updateDoc(doc(db,'users',user.id),{password:np}); showToast("Password diupdate!");}} className="p-2 bg-white border shadow-sm rounded-lg text-blue-500" title="Ubah Password"><Edit2 size={16}/></button>
+                    <button onClick={() => {const np = prompt("Ketik Password Baru:"); if(np) updateDoc(doc(db,'users',user.id),{password:np}); showToast("Password diupdate!");}} className="p-2 bg-white border shadow-sm rounded-lg text-blue-500"><Edit2 size={16}/></button>
                     {user.username !== 'superadmin' && (
-                      <button onClick={() => {if(window.confirm("Hapus akun ini?")) { deleteDoc(doc(db,'users',user.id)); showToast("Akun dihapus!"); } }} className="p-2 bg-white border shadow-sm rounded-lg text-red-500" title="Hapus Akun"><Trash2 size={16}/></button>
+                      <button onClick={() => {if(window.confirm("Hapus akun ini?")) { deleteDoc(doc(db,'users',user.id)); showToast("Akun dihapus!"); } }} className="p-2 bg-white border shadow-sm rounded-lg text-red-500"><Trash2 size={16}/></button>
                     )}
                   </div>
                 </div>
@@ -523,7 +567,7 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL TAMBAH JADWAL --- */}
+      {/* --- MODAL TAMBAH AGENDA --- */}
       {showAddModal && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -542,7 +586,7 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL EDIT JADWAL --- */}
+      {/* --- MODAL EDIT AGENDA --- */}
       {showEditModal && editData && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -561,11 +605,11 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL HAPUS FIX (BUG #1 SOLVED) --- */}
+      {/* --- MODAL HAPUS FIX --- */}
       {eventToDelete && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl p-8 w-full max-w-sm text-center shadow-2xl border-t-8 border-red-500">
-            <ShieldAlert className="h-16 w-16 text-red-500 mx-auto mb-4" />
+            <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
             <h3 className="text-xl font-black mb-2">Hapus dari Sistem?</h3>
             <p className="text-sm text-gray-500 mb-6">Data tidak dapat dikembalikan setelah dihapus.</p>
             <div className="flex gap-3">
@@ -577,7 +621,7 @@ export default function App() {
       )}
 
       {toast.show && (
-        <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 z-50 px-8 py-4 bg-gray-900 text-white rounded-2xl shadow-2xl font-black text-sm tracking-tighter uppercase animate-in fade-in slide-in-from-bottom-5">
+        <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 z-50 px-8 py-4 bg-gray-900 text-white rounded-2xl shadow-2xl font-black text-sm tracking-tighter uppercase animate-in fade-in">
           {toast.message}
         </div>
       )}
